@@ -2,17 +2,17 @@ import numpy as np
 
 
 class Map:
-    def __init__(self, scale, height=1, width=1, dtype=np.uint8):
+    def __init__(self, scale, dtype=np.uint8):
         self.scale = scale
         self.dtype = dtype
-        self.h = height
-        self.w = width
-        self.origin_x = self.w // 2
-        self.origin_y = self.h // 2
-        self.map = np.zeros((self.h, self.w), dtype=self.dtype)
+        self.map_x_min = 0
+        self.map_x_max = 0
+        self.map_y_min = 0
+        self.map_y_max = 0
+        self.map = np.zeros((0, 0), dtype=self.dtype)
 
     @staticmethod
-    def remove_duplicates(xs, ys):
+    def _remove_duplicates(xs, ys):
         points = np.concatenate(
             (
                 xs.reshape(-1, 1), 
@@ -26,43 +26,52 @@ class Map:
         ys = points[:, 1]
         
         return xs, ys
-    
-    def expand(self, pad_x, pad_y):
-        self.map = np.pad(
-            self.map, 
-            ((pad_y, pad_y), (pad_x, pad_x)), 
-            mode='constant',
-            constant_values=0
+
+    def _init(self, xs, ys):
+        self.map_x_min = np.min(xs)
+        self.map_x_max = np.max(xs)
+        self.map_y_min = np.min(ys)
+        self.map_y_max = np.max(ys)
+
+        self.map = np.zeros(
+            (self.map_y_max - self.map_y_min + 1, self.map_x_max - self.map_x_min + 1),
+            dtype=self.dtype
         )
-        self.h += 2 * pad_y 
-        self.w += 2 * pad_x
-        
-        assert self.h == self.map.shape[0]
-        assert self.w == self.map.shape[1]
-        
-        self.origin_x = self.w // 2
-        self.origin_y = self.h // 2
     
     def update(self, points):
-        xs = np.floor(points[:, 0] / self.scale).astype(int) + self.origin_x
-        ys = np.floor(points[:, 1] / self.scale).astype(int) + self.origin_y
+        xs = np.floor(points[:, 0] / self.scale).astype(int)
+        ys = np.floor(points[:, 1] / self.scale).astype(int)
         
-        xs, ys = self.remove_duplicates(xs, ys)
-        
-        pad_x = np.max(np.abs(xs) - (self.w - 1))
-        pad_y = np.max(np.abs(ys) - (self.h - 1))
-        
-        pad_x = max(pad_x, 0)
-        pad_y = max(pad_y, 0)
-        
-        if (pad_x > 0 and pad_y >= 0) or (pad_x >= 0 and pad_y > 0):
-            self.expand(pad_x, pad_y)
-            self.update(points)
-            return 
-        
-        # flip upside down
-        ys *= -1
-        
+        xs, ys = self._remove_duplicates(xs, ys)
+
+        if self.map.shape == (0, 0):
+            self._init(xs, ys)
+
+        map_x_min = np.min(xs)
+        map_x_max = np.max(xs)
+        map_y_min = np.min(ys)
+        map_y_max = np.max(ys)
+
+        pad_x_neg = abs(min(0, map_x_min - self.map_x_min))
+        pad_x_pos = max(0, map_x_max - self.map_x_max)
+        pad_y_neg = abs(min(0, map_y_min - self.map_y_min))
+        pad_y_pos = max(0, map_y_max - self.map_y_max)
+
+        if not (pad_y_pos, pad_y_neg, pad_x_pos, pad_x_neg) == (0, 0, 0, 0):
+            self.map = np.pad(
+                self.map,
+                ((pad_y_neg, pad_y_pos), (pad_x_neg, pad_x_pos)),
+                mode='constant',
+                constant_values=0
+            )
+            self.map_x_min -= pad_x_neg
+            self.map_x_max += pad_x_pos
+            self.map_y_min -= pad_y_neg
+            self.map_y_max += pad_y_pos
+
+        xs -= self.map_x_min
+        ys -= self.map_y_min
+
         new_values = np.zeros_like(self.map)
         new_values[ys, xs] += 1
         
